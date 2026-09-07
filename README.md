@@ -75,10 +75,12 @@ From the repo root:
 
 ```bash
 # Desktop app (native Tauri window) — the Rust host starts/stops the Python server itself
-scripts\run_app.bat        # or: npm run tauri:dev
+scripts\run_app.bat        # Windows, or: scripts/run_app.sh (Linux/macOS)
+                           # or: npm run tauri:dev
 
 # Web mode (FastAPI server + Vite UI in the browser at http://localhost:1420)
-scripts\run_web.bat        # or: npm run dev
+scripts\run_web.bat        # Windows, or: scripts/run_web.sh (Linux/macOS)
+                           # or: npm run dev
 ```
 
 > The first `run_app` launch is slow — Cargo compiles the Rust `src-tauri`
