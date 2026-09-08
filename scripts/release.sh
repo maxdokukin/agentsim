@@ -40,6 +40,14 @@ if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+echo "[release] about to publish v$version (current: v$current)."
+echo "[release] this will commit, push main, and fast-forward releases -> main, triggering the CI release build."
+read -r -p "[release] continue? [y/N] " confirm
+if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+  echo "[release] aborted."
+  exit 1
+fi
+
 if [ "$version" != "$current" ]; then
   echo "[release] bumping $current -> $version..."
   for f in package.json src/app/package.json src/app/src-tauri/tauri.conf.json; do
