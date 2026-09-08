@@ -8,6 +8,8 @@
 # Runnable locally and from CI (.github/workflows/release.yml calls this,
 # once per architecture). Steps:
 #   1. npm ci                       install frontend + tooling deps (clean)
+#      + work around npm/cli#4828   see comment below - re-installs this
+#                                    platform's native optional deps
 #   2. npm run app:icons            regenerate icons/ (git-ignored) from the
 #                                    tracked assets/icon/dark.png
 #   3. release/stage-python.sh      stage the portable Python + server source
@@ -28,6 +30,26 @@ cd "$repo_root"
 
 echo "[build] npm ci"
 npm ci
+
+# Work around a long-standing npm optional-dependencies bug
+# (https://github.com/npm/cli/issues/4828): package-lock.json doesn't
+# reliably record every platform's native optional package, so `npm ci` can
+# silently omit this platform's @rollup/@tauri-apps/cli binary even though
+# it's required. Re-install the exact versions already resolved in
+# node_modules for the current architecture; --no-save keeps the lockfile
+# untouched. Must install both together in one call - installing them
+# separately has been observed to evict each other.
+case "$(uname -m)" in
+  x86_64|amd64)   npm_arch="x64" ;;
+  aarch64|arm64)  npm_arch="arm64" ;;
+  *) echo "[build] unsupported architecture for npm optional-deps workaround: $(uname -m)" >&2; exit 1 ;;
+esac
+rollup_ver="$(node -p "require('./node_modules/rollup/package.json').version")"
+tauri_cli_ver="$(node -p "require('./node_modules/@tauri-apps/cli/package.json').version")"
+echo "[build] working around npm/cli#4828: installing native optional deps for linux-$npm_arch-gnu"
+npm install --no-save \
+  "@rollup/rollup-linux-${npm_arch}-gnu@${rollup_ver}" \
+  "@tauri-apps/cli-linux-${npm_arch}-gnu@${tauri_cli_ver}"
 
 echo "[build] generating icons"
 npm run app:icons
