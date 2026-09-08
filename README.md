@@ -41,15 +41,21 @@ Add data one of three ways (examples shown for Claude Code):
 
 ## Getting started
 
-1. Download the latest Windows release from the **Releases** section in the
-   sidebar on the right.
-2. Run the installer.
-   - You will see **"Windows protected your PC"** — click **More info → Run anyway**.
-   - This appears because the app is not yet signed. It's open source, so feel
-     free to audit the code.
-3. Select the data sources you would like to view.
+Download the latest release for your platform from the **Releases** section
+in the sidebar on the right, then select the data sources you would like to
+view.
 
-> **Windows only** for now — other platforms will be supported soon.
+- **Windows**: run the `.msi` installer.
+  - You will see **"Windows protected your PC"** — click **More info → Run
+    anyway**.
+- **Ubuntu / Debian**: install the `.deb` for your architecture
+  (`amd64` or `arm64`), e.g. `sudo apt install ./AgentSim_<version>_amd64.deb`.
+
+Both installers are unsigned — the app isn't code-signed yet. It's open
+source, so feel free to audit the code.
+
+> macOS isn't packaged yet — see [For developers](#for-developers) to run
+> from source in the meantime.
 
 ## For developers
 
@@ -89,4 +95,4 @@ scripts\run_web.bat        # Windows, or: scripts/run_web.sh (Linux/macOS)
 ## Future direction
 - Extending support to Gaia, Cursor, Codex, and OpenCode
 - Adding session analysis and stats with AI-driven analytics
-- Cross-platform support beyond Windows
+- macOS support
