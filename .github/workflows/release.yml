@@ -1,9 +1,10 @@
-name: Release (Windows MSI)
+name: Release (Windows MSI + Linux DEB)
 
-# Thin wrapper: the real build logic lives in release/build.ps1 so it can run
-# identically on a dev machine and here. Pushing to the `releases` branch builds
-# a self-contained .msi (embeddable Python + FastAPI server bundled in) and
-# publishes it as a GitHub Release.
+# Thin wrapper: the real build logic lives in release/build.ps1 (Windows) and
+# release/build.sh (Linux) so it can run identically on a dev machine and
+# here. Pushing to the `releases` branch builds self-contained installers
+# (embeddable/portable Python + FastAPI server bundled in) and publishes them
+# together as one GitHub Release.
 
 on:
   push:
@@ -14,7 +15,7 @@ permissions:
   contents: write # needed to create the GitHub Release
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,18 +42,77 @@ jobs:
         shell: pwsh
         run: ./release/build.ps1
 
-      - name: Read app version
-        id: ver
-        shell: pwsh
-        run: |
-          $v = (Get-Content src/app/src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          "version=$v" >> $env:GITHUB_OUTPUT
-
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: AgentSim-msi
           path: release/dist/*.msi
+
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pin an older Ubuntu baseline (not ubuntu-latest) so the Tauri
+          # binary links against an older glibc and runs forward-compatibly
+          # on users' machines, per Tauri's own Linux packaging guidance.
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/app/src-tauri
+          key: ${{ matrix.arch }}
+
+      - name: Build deb
+        run: ./release/build.sh
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentSim-deb-${{ matrix.arch }}
+          path: release/dist/*.deb
+
+  publish:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "AgentSim-*"
+          merge-multiple: true
+
+      - name: Read app version
+        id: ver
+        run: |
+          v=$(jq -r .version src/app/src-tauri/tauri.conf.json)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -60,5 +120,7 @@ jobs:
           tag_name: v${{ steps.ver.outputs.version }}-${{ github.run_number }}
           name: AgentSim v${{ steps.ver.outputs.version }}
           body_path: release/RELEASE_NOTES.md
-          files: release/dist/*.msi
+          files: |
+            dist/*.msi
+            dist/*.deb
           fail_on_unmatched_files: true
