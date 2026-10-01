@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { el } from "./dom.js";
 import { fetchSessionConfig, updateSessionConfig } from "../data/api.js";
+import { notifyFailure, notifyWarning } from "./Notifications.js";
 import type { SessionUserConfigPatch } from "../data/api.js";
 import type { Conversation } from "../data/conversations.js";
 
@@ -128,13 +129,22 @@ async function launchSession(conversation: Conversation): Promise<void> {
     return;
   }
   try {
-    await invoke("launch_session", {
+    // Non-null when the project dir is gone and the host fell back to home.
+    const fallbackDir = await invoke<string | null>("launch_session", {
       sessionId: conversation.id,
       model: conversation.model,
       projectPath: conversation.projectPath,
     });
+    if (fallbackDir !== null) {
+      notifyWarning(
+        `launch_session:${conversation.id}`,
+        "Project directory not found",
+        `${conversation.projectPath} no longer exists — launched session in ${fallbackDir || "the default directory"}.`,
+      );
+    }
   } catch (err) {
     console.error("[conversation] Launch Session failed", err);
+    notifyFailure(err, "launch_session");
   }
 }
 

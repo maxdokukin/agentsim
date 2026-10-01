@@ -24,6 +24,9 @@ const transport = new Map<string, string>();
 // endpoint label -> server `detail` for a non-transport failure the client saw
 // directly (e.g. a 500 the /diagnostics collector never recorded).
 const dataErrors = new Map<string, string>();
+// key -> { title, detail } for client-side warnings that aren't request
+// failures (e.g. a session launched outside its deleted project dir).
+const warnings = new Map<string, { title: string; detail: string }>();
 // The server's own view of data-source health, refreshed after each load.
 let serverDiags: Diagnostic[] = [];
 
@@ -96,6 +99,15 @@ function render(): void {
     );
   }
 
+  for (const [key, w] of warnings) {
+    container.append(
+      item("warning", w.title, w.detail, () => {
+        warnings.delete(key);
+        render();
+      }),
+    );
+  }
+
   for (const d of serverDiags) {
     // A single dismiss clears the whole server-collected set (the only API the
     // server exposes); still-broken files re-record on the next load.
@@ -119,6 +131,12 @@ export function notifyFailure(error: unknown, endpoint: string): void {
   } else {
     dataErrors.set(endpoint, error instanceof Error ? error.message : String(error));
   }
+  render();
+}
+
+// Show (or replace) a dismissable warning keyed by `key`.
+export function notifyWarning(key: string, title: string, detail: string): void {
+  warnings.set(key, { title, detail });
   render();
 }
 

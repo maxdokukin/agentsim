@@ -65,12 +65,17 @@ fn is_safe_token(s: &str) -> bool {
 /// `claude --resume <session_id> [--model <model>]` with the working directory
 /// set to the session's project so Claude resolves it. (`--resume` targets a
 /// specific id; `--continue` would ignore it and reopen the latest session.)
+///
+/// If the project directory no longer exists the terminal opens in the home
+/// directory instead, and that directory is returned so the UI can say so;
+/// `None` means the session's own project directory was used.
 #[tauri::command]
 pub(crate) fn launch_session(
     session_id: String,
     model: String,
     project_path: String,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     if !is_safe_token(&session_id) {
@@ -84,6 +89,15 @@ pub(crate) fn launch_session(
         claude.push_str(&format!(" --model {model}"));
     }
 
+    // Spawning with a missing current_dir fails outright (ENOENT), so fall back
+    // to home when the project was moved or deleted.
+    let (cwd, fell_back): (Option<PathBuf>, bool) =
+        if !project_path.is_empty() && Path::new(&project_path).is_dir() {
+            (Some(PathBuf::from(&project_path)), false)
+        } else {
+            (home_dir(), !project_path.is_empty())
+        };
+
     #[cfg(target_os = "windows")]
     let mut cmd = {
         let mut c = Command::new("cmd");
@@ -93,10 +107,9 @@ pub(crate) fn launch_session(
 
     #[cfg(target_os = "macos")]
     let mut cmd = {
-        let body = if project_path.is_empty() {
-            claude.clone()
-        } else {
-            format!("cd {} && {claude}", shell_quote(&project_path))
+        let body = match &cwd {
+            Some(dir) => format!("cd {} && {claude}", shell_quote(&dir.to_string_lossy())),
+            None => claude.clone(),
         };
         let mut c = Command::new("osascript");
         c.args([
@@ -106,19 +119,58 @@ pub(crate) fn launch_session(
         c
     };
 
+    // Ptyxis (Ubuntu/Fedora default) puts a command passed with `-e`/`-x` or
+    // `--new-window` in a stripped-down window with no tabs. `--tab` runs it as
+    // a tab in a normal window instead (the active one, or a new one if none),
+    // which the user can move out via the tab's "Move to New Window". Other
+    // terminals go through the Debian alternatives link.
     #[cfg(target_os = "linux")]
     let mut cmd = {
-        let mut c = Command::new("x-terminal-emulator");
-        c.args(["-e", "bash", "-c", &format!("{claude}; exec bash")]);
-        c
+        let shell = format!("{claude}; exec bash");
+        if on_path("ptyxis") {
+            let mut c = Command::new("ptyxis");
+            c.arg("--tab");
+            if let Some(dir) = &cwd {
+                c.arg("-d").arg(dir);
+            }
+            c.args(["--", "bash", "-c", &shell]);
+            c
+        } else {
+            let mut c = Command::new("x-terminal-emulator");
+            c.args(["-e", "bash", "-c", &shell]);
+            c
+        }
     };
 
-    if !project_path.is_empty() {
-        cmd.current_dir(&project_path);
+    if let Some(dir) = &cwd {
+        cmd.current_dir(dir);
     }
 
-    cmd.spawn().map_err(|e| e.to_string())?;
-    Ok(())
+    // The launcher exits as soon as the terminal is up (Ptyxis hands off to its
+    // running service); reap it so it doesn't linger as a zombie.
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(if fell_back {
+        Some(cwd.map(|d| d.to_string_lossy().into_owned()).unwrap_or_default())
+    } else {
+        None
+    })
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    let var = if cfg!(target_os = "windows") { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var)
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir())
+}
+
+#[cfg(target_os = "linux")]
+fn on_path(bin: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file()))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
