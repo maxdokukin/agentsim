@@ -1,5 +1,8 @@
 ## AgentSim
 
+v0.1.7
+Fixed session launch Ubuntu terminal bug.
+
 v0.1.6
 Fixed date parsing bugs, and improved UI.
 
